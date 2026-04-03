@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Manual Attendance{% endblock %}
+{% block page_title %}Manual Attendance{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <!-- Class & Date Selector -->
+    <form method="get" class="filters-bar mb-3">
+        <div class="filter-group">
+            <label>Class</label>
+            <select name="class_id" class="filter-input" onchange="this.form.submit()">
+                <option value="">Select Class</option>
+                {% for c in classes %}
+                <option value="{{ c.pk }}" {% if selected_class and selected_class.pk == c.pk %}selected{% endif %}>
+                    {{ c.name }} — {{ c.faculty.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Date</label>
+            <input type="date" name="date" value="{{ selected_date }}" class="filter-input"
+                onchange="this.form.submit()">
+        </div>
+    </form>
+
+    {% if selected_class %}
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">
+                <i class="fas fa-clipboard-check"></i>
+                {{ selected_class.name }} — {{ selected_date }}
+            </h3>
+            <span class="text-muted">{{ students|length }} students</span>
+        </div>
+
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="class_id" value="{{ selected_class.pk }}">
+            <input type="hidden" name="date" value="{{ selected_date }}">
+
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in students %}
+                        <tr>
+                            <td>
+                                <div class="d-flex align-center gap-1">
+                                    {% if item.student.profile_image %}
+                                    <img src="{{ item.student.profile_image.url }}" alt="" class="student-avatar">
+                                    {% endif %}
+                                    <strong>{{ item.student.full_name }}</strong>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="status-radio-group">
+                                    <input type="radio" name="status_{{ item.student.pk }}" value="present"
+                                        id="p_{{ item.student.pk }}" class="status-radio" {% if item.status == 'present' %}checked{% endif %}>
+                                    <label for="p_{{ item.student.pk }}"
+                                        class="status-radio-label label-present">Present</label>
+
+                                    <input type="radio" name="status_{{ item.student.pk }}" value="absent"
+                                        id="a_{{ item.student.pk }}" class="status-radio" {% if item.status == 'absent' %}checked{% endif %}>
+                                    <label for="a_{{ item.student.pk }}"
+                                        class="status-radio-label label-absent">Absent</label>
+
+                                    <input type="radio" name="status_{{ item.student.pk }}" value="late"
+                                        id="l_{{ item.student.pk }}" class="status-radio" {% if item.status == 'late' %}checked{% endif %}>
+                                    <label for="l_{{ item.student.pk }}"
+                                        class="status-radio-label label-late">Late</label>
+
+                                    <input type="radio" name="status_{{ item.student.pk }}" value="informed"
+                                        id="i_{{ item.student.pk }}" class="status-radio" {% if item.status == 'informed' %}checked{% endif %}>
+                                    <label for="i_{{ item.student.pk }}"
+                                        class="status-radio-label label-informed">Informed</label>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="2" class="text-center text-muted">No students in this class.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if students %}
+            <div class="form-actions mt-2">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-save"></i> Save Attendance
+                </button>
+                <button type="button" class="btn btn-outline" onclick="selectAll('present')">
+                    <i class="fas fa-check-double"></i> Mark All Present
+                </button>
+                <button type="button" class="btn btn-outline" onclick="selectAll('absent')">
+                    <i class="fas fa-times"></i> Mark All Absent
+                </button>
+            </div>
+            {% endif %}
+        </form>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-clipboard-list"></i>
+        <p>Select a class above to mark attendance.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function selectAll(status) {
+        document.querySelectorAll(`input[value="${status}"]`).forEach(r => r.checked = true);
+    }
+</script>
+{% endblock %}

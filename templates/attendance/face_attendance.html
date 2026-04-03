@@ -1,0 +1,295 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Face Recognition Attendance{% endblock %}
+{% block page_title %}24/7 Attendance System{% endblock %}
+
+{% block content %}
+<div style="max-width: 1400px; margin: 0 auto; padding: 20px;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        
+        <!-- LEFT: Camera Section -->
+        <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-camera"></i> Face Detection
+            </h2>
+
+            <div id="cameraContainer" style="margin: 15px 0; border-radius: 8px; overflow: hidden; background: #000; position: relative;">
+                <video id="video" autoplay playsinline style="width: 100%; display: block;"></video>
+                <canvas id="overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin: 15px 0;">
+                <button class="btn btn-primary" id="startBtn" style="flex: 1;">
+                    <i class="fas fa-play"></i> Start Camera
+                </button>
+                <button class="btn btn-danger" id="stopBtn" style="flex: 1; display: none;">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+            </div>
+
+            <div style="background: #f0f9ff; border-radius: 4px; padding: 12px; border-left: 4px solid #0369a1;">
+                <p style="margin: 0; font-size: 0.9rem; color: #0369a1;">
+                    <i class="fas fa-info-circle"></i>
+                    <span id="cameraStatus" style="margin-left: 8px;">Click Start Camera to begin scanning</span>
+                </p>
+            </div>
+
+            {% if not face_recognition_available %}
+            <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px; padding: 12px; margin-top: 15px;">
+                <p style="margin: 0; color: #92400e;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Face recognition is not available.</strong> Please ensure the face_recognition library is installed.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- RIGHT: Attendance Records Section -->
+        <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow-y: auto; max-height: 600px;">
+            <h2 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-list"></i> Today's Attendance
+            </h2>
+
+            <div id="attendanceList" style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="text-align: center; color: #999; padding: 20px;">
+                    <i class="fas fa-clock" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                    <p style="margin: 0;">Waiting for face detection...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function() {
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const ctx = overlay.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('cameraStatus');
+        const attendanceListEl = document.getElementById('attendanceList');
+        const csrfToken = '{{ csrf_token }}';
+
+        let scanning = false;
+        let scanInterval = null;
+        let stream = null;
+        let requestInFlight = false;
+        let cameraReady = false;
+        let markedStudents = new Set(); // Prevent duplicate marks
+
+        function stopCameraStream() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            stream = null;
+            video.srcObject = null;
+            cameraReady = false;
+        }
+
+        function isLiveStream(s) {
+            if (!s) return false;
+            const tracks = s.getVideoTracks();
+            return tracks.length > 0 && tracks.some(t => t.readyState === 'live');
+        }
+
+        async function startCamera(showAlert = true) {
+            if (isLiveStream(stream)) {
+                cameraReady = true;
+                return true;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                cameraReady = false;
+                statusEl.textContent = 'Camera API unavailable';
+                if (showAlert) alert('Your browser does not support camera access.');
+                return false;
+            }
+
+            stopCameraStream();
+            statusEl.textContent = 'Starting camera...';
+
+            const attempts = [
+                { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'user' } } },
+                { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+                { video: true },
+            ];
+
+            let lastErr = null;
+            for (const constraints of attempts) {
+                try {
+                    const candidate = await navigator.mediaDevices.getUserMedia(constraints);
+                    stream = candidate;
+                    video.srcObject = stream;
+                    video.muted = true;
+                    video.onloadedmetadata = () => {
+                        overlay.width = video.videoWidth;
+                        overlay.height = video.videoHeight;
+                    };
+                    await video.play();
+                    statusEl.textContent = 'Camera Ready - Scanning...';
+                    cameraReady = true;
+                    return true;
+                } catch (err) {
+                    lastErr = err;
+                    stopCameraStream();
+                    await new Promise(resolve => setTimeout(resolve, 250));
+                }
+            }
+
+            cameraReady = false;
+            statusEl.textContent = 'Camera unavailable';
+            if (showAlert) alert('Cannot access camera. Please allow camera permission.');
+            return false;
+        }
+
+        function captureFrame() {
+            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+                return null;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            return canvas.toDataURL('image/jpeg', 0.9);
+        }
+
+        async function markAttendance() {
+            if (!scanning || requestInFlight) return;
+
+            const imageData = captureFrame();
+            if (!imageData) return;
+
+            requestInFlight = true;
+
+            try {
+                const response = await fetch('/api/mark-attendance/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ image: imageData }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.results && data.results.length > 0) {
+                    data.results.forEach(r => {
+                        // Draw bounding box
+                        const bbox = r.bbox;
+                        ctx.strokeStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(bbox.left, bbox.top, bbox.right - bbox.left, bbox.bottom - bbox.top);
+
+                        // Draw label
+                        const status = r.attendance_status || 'Unknown';
+                        const label = r.matched ? `${r.student_name}` : 'Unknown';
+                        ctx.fillStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.font = 'bold 14px Arial';
+                        const textW = ctx.measureText(label).width;
+                        ctx.fillRect(bbox.left, bbox.top - 24, textW + 12, 24);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillText(label, bbox.left + 6, bbox.top - 7);
+
+                        // Add to attendance list if matched and not already marked
+                        if (r.matched && !markedStudents.has(r.student_id)) {
+                            markedStudents.add(r.student_id);
+                            addAttendanceRecord(r);
+                        }
+                    });
+                    statusEl.textContent = 'Attendance marked!';
+                } else {
+                    ctx.clearRect(0, 0, overlay.width, overlay.height);
+                }
+            } catch (err) {
+                console.error('Scan error:', err);
+            } finally {
+                requestInFlight = false;
+            }
+        }
+
+        function addAttendanceRecord(r) {
+            const isFirstRecord = attendanceListEl.querySelector('[style*="text-align: center"]') !== null;
+            if (isFirstRecord) {
+                attendanceListEl.innerHTML = '';
+            }
+
+            const statusColor = r.attendance_status === 'late' ? '#ef4444' : 
+                               r.attendance_status === 'present' ? '#10b981' : '#999';
+            const statusText = r.attendance_status ? r.attendance_status.toUpperCase() : 'UNKNOWN';
+            const timeText = r.check_in_time || new Date().toLocaleTimeString();
+
+            const div = document.createElement('div');
+            div.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px;
+                background: #f9fafb;
+                border-radius: 6px;
+                border-left: 4px solid ${statusColor};
+            `;
+            div.innerHTML = `
+                <div style="flex: 1;">
+                    <strong>${r.student_name}</strong>
+                    <div style="font-size: 0.85rem; color: #666;">
+                        ID: ${r.student_id} | ${timeText}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="
+                        display: inline-block;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        background: ${statusColor}15;
+                        color: ${statusColor};
+                        font-weight: 600;
+                        font-size: 0.85rem;
+                    ">${statusText}</span>
+                </div>
+            `;
+            attendanceListEl.prepend(div);
+
+            // Keep only last 20 records
+            while (attendanceListEl.children.length > 20) {
+                attendanceListEl.removeChild(attendanceListEl.lastChild);
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            (async () => {
+                const ok = await startCamera();
+                if (!ok) return;
+                scanning = true;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+                scanInterval = setInterval(markAttendance, 2000);
+            })();
+        });
+
+        stopBtn.addEventListener('click', () => {
+            scanning = false;
+            clearInterval(scanInterval);
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            statusEl.textContent = 'Stopped';
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            stopCameraStream();
+        });
+
+        // Auto-start camera on page load
+        setTimeout(async () => {
+            const ok = await startCamera(false);
+            if (ok) {
+                scanning = true;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+                scanInterval = setInterval(markAttendance, 2000);
+            }
+        }, 500);
+    })();
+</script>
+{% endblock %}

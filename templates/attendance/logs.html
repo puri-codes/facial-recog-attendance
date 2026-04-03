@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Attendance Logs{% endblock %}
+{% block page_title %}Attendance Audit Logs{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <div class="card mb-3">
+        <div class="d-flex gap-2 flex-wrap">
+            <div><span class="text-muted">Student:</span> <strong>{{ attendance.student.full_name }}</strong></div>
+            <div><span class="text-muted">Date:</span> <strong>{{ attendance.date }}</strong></div>
+            <div><span class="text-muted">Current Status:</span> <span class="badge badge-{{ attendance.status }}">{{
+                    attendance.get_status_display }}</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-history"></i> Change History</h3>
+        </div>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Previous</th>
+                        <th>New</th>
+                        <th>Changed By</th>
+                        <th>Notes</th>
+                        <th>Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td><span class="badge badge-informed">{{ log.get_action_display }}</span></td>
+                        <td>{{ log.previous_status|default:"—" }}</td>
+                        <td><span class="badge badge-{{ log.new_status }}">{{ log.new_status }}</span></td>
+                        <td>{{ log.changed_by.get_full_name|default:"System" }}</td>
+                        <td>{{ log.notes|default:"—" }}</td>
+                        <td>{{ log.timestamp|date:"M d, H:i" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">No logs found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-2">
+        <a href="javascript:history.back()" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+</div>
+{% endblock %}

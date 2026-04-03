@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block title %}Login{% endblock %}
+
+{% block auth_content %}
+<div class="auth-card">
+    <div class="auth-logo">
+        <i class="fas fa-face-smile-beam"></i>
+        <h1>FaceAttend</h1>
+        <p>Sign in as Admin, Teacher, or Student</p>
+    </div>
+
+    {% if messages %}
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}" style="margin-bottom: 16px;">
+        <i class="fas fa-exclamation-circle"></i>
+        <span>{{ message }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <form method="post" class="auth-form">
+        {% csrf_token %}
+        {% if next_url %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        <div class="form-group">
+            <label class="form-label" for="id_username">Username</label>
+            {{ form.username }}
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="id_password">Password</label>
+            {{ form.password }}
+        </div>
+        {% if form.errors %}
+        <div class="alert alert-error" style="margin-bottom: 12px;">
+            <i class="fas fa-exclamation-circle"></i>
+            <span>Invalid username or password. Please try again.</span>
+        </div>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-sign-in-alt"></i> Sign In
+        </button>
+    </form>
+
+    <div style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+        <p style="margin: 0 0 8px 0; font-size: 0.85rem; opacity: 0.85;">Demo credentials (separate accounts)</p>
+        <div style="font-size: 0.82rem; line-height: 1.5; opacity: 0.9;">
+            <div><strong>Admin:</strong> admin / admin123</div>
+            <div><strong>Teacher:</strong> teacher1 / teacher123</div>
+            <div><strong>Student:</strong> username from name / presidential</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

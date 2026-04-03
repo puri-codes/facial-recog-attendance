@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+
+{% block title %}Student Dashboard{% endblock %}
+{% block page_title %}My Dashboard{% endblock %}
+
+{% block content %}
+{% if student %}
+<!-- Today's Status -->
+<div class="stats-grid animate-fade-in">
+    <div
+        class="stat-card {% if today_attendance %}{% if today_attendance.status == 'present' %}success{% elif today_attendance.status == 'late' %}warning{% elif today_attendance.status == 'absent' %}danger{% else %}info{% endif %}{% else %}danger{% endif %}">
+        <div
+            class="stat-icon {% if today_attendance %}{% if today_attendance.status == 'present' %}success{% elif today_attendance.status == 'late' %}warning{% elif today_attendance.status == 'absent' %}danger{% else %}info{% endif %}{% else %}danger{% endif %}">
+            <i
+                class="fas {% if today_attendance %}{% if today_attendance.status == 'present' %}fa-check-circle{% elif today_attendance.status == 'late' %}fa-clock{% else %}fa-times-circle{% endif %}{% else %}fa-question-circle{% endif %}"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value">{% if today_attendance %}{{ today_attendance.get_status_display }}{% else %}Not
+                Marked{% endif %}</div>
+            <div class="stat-label">Today's Status — {{ today }}</div>
+        </div>
+    </div>
+
+    <div class="stat-card primary">
+        <div class="stat-icon primary"><i class="fas fa-calendar-check"></i></div>
+        <div class="stat-content">
+            <div class="stat-value">{{ present_days }}/{{ total_days }}</div>
+            <div class="stat-label">Days Present This Month</div>
+        </div>
+    </div>
+
+    <div
+        class="stat-card {% if percentage >= 75 %}success{% elif percentage >= 50 %}warning{% else %}danger{% endif %}">
+        <div
+            class="stat-icon {% if percentage >= 75 %}success{% elif percentage >= 50 %}warning{% else %}danger{% endif %}">
+            <i class="fas fa-chart-pie"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value">{{ percentage }}%</div>
+            <div class="stat-label">Monthly Attendance Rate</div>
+        </div>
+    </div>
+</div>
+
+<!-- Attendance Progress -->
+<div class="card mb-3 animate-fade-in">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-chart-bar"></i> Monthly Progress</h3>
+    </div>
+    <div class="progress-bar" style="height: 12px;">
+        <div class="progress-fill {% if percentage >= 75 %}success{% elif percentage >= 50 %}warning{% else %}danger{% endif %}"
+            style="width: {{ percentage }}%"></div>
+    </div>
+    <p class="text-muted mt-1" style="font-size: 0.85rem;">
+        {{ present_days }} days present out of {{ total_days }} recorded days
+    </p>
+</div>
+
+<!-- Monthly Attendance Calendar -->
+<div class="card animate-fade-in">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-calendar-alt"></i> This Month's Attendance</h3>
+    </div>
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Check-in Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for att in monthly_attendance %}
+                <tr>
+                    <td>{{ att.date|date:"D, M d, Y" }}</td>
+                    <td><span class="badge badge-{{ att.status }}">{{ att.get_status_display }}</span></td>
+                    <td>{{ att.check_in_time|default:"—" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="text-center text-muted">No attendance records this month.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="empty-state">
+    <i class="fas fa-user-slash"></i>
+    <p>No student profile linked to your account. Please contact the administrator.</p>
+</div>
+{% endif %}
+{% endblock %}

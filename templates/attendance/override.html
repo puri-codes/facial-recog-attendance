@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Override Attendance{% endblock %}
+{% block page_title %}{% if is_teacher %}Correct{% else %}Override{% endif %} Attendance{% endblock %}
+
+{% block content %}
+<div class="card animate-fade-in" style="max-width: 600px;">
+    <div class="card-header">
+        <h3 class="card-title">
+            <i class="fas fa-edit"></i> {{ attendance.student.full_name }}
+        </h3>
+    </div>
+
+    <div class="d-flex gap-2 mb-3">
+        <div>
+            <span class="text-muted">Date:</span>
+            <strong>{{ attendance.date }}</strong>
+        </div>
+        <div>
+            <span class="text-muted">Current Status:</span>
+            <span class="badge badge-{{ attendance.status }}">{{ attendance.get_status_display }}</span>
+        </div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <label class="form-label">New Status</label>
+            <div class="status-radio-group" style="flex-wrap: wrap;">
+                {% for value, label in attendance.Status.choices %}
+                <input type="radio" name="status" value="{{ value }}" id="s_{{ value }}" class="status-radio" {% if attendance.status == value %}checked{% endif %}>
+                <label for="s_{{ value }}" class="status-radio-label label-{{ value }}">{{ label }}</label>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Notes / Reason</label>
+            <textarea name="notes" class="form-textarea" rows="3"
+                placeholder="Reason for the change...">{{ attendance.notes }}</textarea>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+            <a href="javascript:history.back()" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

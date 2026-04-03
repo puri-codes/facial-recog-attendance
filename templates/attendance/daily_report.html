@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Daily Report{% endblock %}
+{% block page_title %}Daily Attendance Report{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <!-- Filters -->
+    <form method="get" class="filters-bar mb-3">
+        <div class="filter-group">
+            <label>Date</label>
+            <input type="date" name="date" value="{{ selected_date }}" class="filter-input"
+                onchange="this.form.submit()">
+        </div>
+        <div class="filter-group">
+            <label>Faculty</label>
+            <select name="faculty" class="filter-input" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for f in faculties %}
+                <option value="{{ f.pk }}" {% if selected_faculty == f.pk|stringformat:"d" %}selected{% endif %}>{{ f.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Class</label>
+            <select name="class" class="filter-input" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for c in classes %}
+                <option value="{{ c.pk }}" {% if selected_class == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Search</label>
+            <input type="text" name="search" value="{{ search }}" placeholder="Student name..." class="search-input">
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-filter"></i> Filter</button>
+    </form>
+
+    <!-- Summary -->
+    <div class="stats-grid mb-3">
+        <div class="stat-card primary">
+            <div class="stat-icon primary"><i class="fas fa-users"></i></div>
+            <div class="stat-content">
+                <div class="stat-value">{{ summary.total }}</div>
+                <div class="stat-label">Total Records</div>
+            </div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-icon success"><i class="fas fa-check"></i></div>
+            <div class="stat-content">
+                <div class="stat-value">{{ summary.present }}</div>
+                <div class="stat-label">Present</div>
+            </div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-icon warning"><i class="fas fa-clock"></i></div>
+            <div class="stat-content">
+                <div class="stat-value">{{ summary.late }}</div>
+                <div class="stat-label">Late</div>
+            </div>
+        </div>
+        <div class="stat-card danger">
+            <div class="stat-icon danger"><i class="fas fa-times"></i></div>
+            <div class="stat-content">
+                <div class="stat-value">{{ summary.absent }}</div>
+                <div class="stat-label">Absent</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+        <div class="table-container">
+            <table class="data-table" id="dailyTable">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Phone</th>
+                        <th>Guardian Phone</th>
+                        <th>Class</th>
+                        <th>Faculty</th>
+                        <th>Status</th>
+                        <th>Check-in</th>
+                        <th>Method</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr>
+                        <td><strong>{{ r.student.full_name }}</strong></td>
+                        <td>{{ r.student.phone|default:"—" }}</td>
+                        <td>{{ r.student.guardian_phone|default:"—" }}</td>
+                        <td>{{ r.student.academic_class.name }}</td>
+                        <td>{{ r.student.faculty.name }}</td>
+                        <td><span class="badge badge-{{ r.status }}">{{ r.get_status_display }}</span></td>
+                        <td>{{ r.check_in_time|default:"—" }}</td>
+                        <td>
+                            {% if r.is_face_recognized %}
+                            <span class="badge badge-present"><i class="fas fa-face-smile"></i> Face</span>
+                            {% elif r.is_override %}
+                            <span class="badge badge-informed"><i class="fas fa-edit"></i> Override</span>
+                            {% else %}
+                            <span class="badge badge-late"><i class="fas fa-hand"></i> Manual</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                {% if request.user.role == 'admin' %}
+                                <a href="{% url 'attendance:override' r.pk %}" class="btn btn-sm btn-outline"
+                                    title="Override">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                                {% endif %}
+                                <a href="{% url 'attendance:logs' r.pk %}" class="btn btn-sm btn-outline" title="Logs">
+                                    <i class="fas fa-history"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted">No attendance records for this date.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/tables.js' %}"></script>
+{% endblock %}

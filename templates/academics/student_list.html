@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Students{% endblock %}
+{% block page_title %}Student Database{% endblock %}
+
+{% block top_actions %}
+<a href="{% url 'academics:student_enroll' %}" class="btn btn-success btn-sm">
+    <i class="fas fa-user-plus"></i> Enroll (Upload)
+</a>
+<a href="{% url 'academics:student_enroll_webcam' %}" class="btn btn-primary btn-sm">
+    <i class="fas fa-camera"></i> Enroll (Webcam)
+</a>
+<button class="btn btn-info btn-sm" id="bulkEncodeBtn" onclick="bulkEncodeFaces()">
+    <i class="fas fa-sync"></i> Encode All Faces
+</button>
+<button class="btn btn-warning btn-sm" id="linkStudentsBtn" onclick="linkStudentsToUsers()">
+    <i class="fas fa-link"></i> Link Students to Accounts
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<form method="get" class="filters-bar animate-fade-in">
+    <div class="filter-group">
+        <label>Search</label>
+        <input type="text" name="search" value="{{ search }}" placeholder="Name or phone..." class="search-input">
+    </div>
+    <div class="filter-group">
+        <label>Faculty</label>
+        <select name="faculty" class="filter-input" onchange="this.form.submit()">
+            <option value="">All Faculties</option>
+            {% for f in faculties %}
+            <option value="{{ f.pk }}" {% if selected_faculty == f.pk|stringformat:"d" %}selected{% endif %}>{{ f.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>Class</label>
+        <select name="class" class="filter-input" onchange="this.form.submit()">
+            <option value="">All Classes</option>
+            {% for c in classes %}
+            <option value="{{ c.pk }}" {% if selected_class == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>Year</label>
+        <input type="number" name="year" value="{{ selected_year|default:'' }}" placeholder="e.g. 2025"
+            class="filter-input" style="width:100px;">
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-search"></i> Filter</button>
+</form>
+
+<!-- Student Table -->
+<div class="table-container animate-fade-in">
+    <table class="data-table" id="studentTable">
+        <thead>
+            <tr>
+                <th>Student</th>
+                <th>Class</th>
+                <th>Faculty</th>
+                <th>Year</th>
+                <th>Phone</th>
+                <th>Today</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in students %}
+            <tr>
+                <td>
+                    <div class="d-flex align-center gap-1">
+                        {% if s.profile_image %}
+                        <img src="{{ s.profile_image.url }}" alt="" class="student-avatar">
+                        {% else %}
+                        <div class="student-avatar d-flex align-center"
+                            style="justify-content:center; background: var(--bg-secondary);"><i class="fas fa-user"></i>
+                        </div>
+                        {% endif %}
+                        <div>
+                            <strong>{{ s.full_name }}</strong>
+                            {% if s.face_encoding %}<i class="fas fa-shield-check text-success" title="Face enrolled"
+                                style="font-size:0.7rem;"></i>{% endif %}
+                        </div>
+                    </div>
+                </td>
+                <td>{{ s.academic_class.name }}</td>
+                <td>{{ s.faculty.name }}</td>
+                <td>{{ s.enrollment_year }}</td>
+                <td>
+                    <select class="filter-input" style="min-width: 210px; max-width: 260px;">
+                        <option value="student">
+                            Student: {% if s.phone %}{{ s.phone }}{% else %}—{% endif %}
+                        </option>
+                        <option value="guardian">
+                            Guardian: {% if s.guardian_phone %}{{ s.guardian_phone }}{% else %}—{% endif %}
+                        </option>
+                    </select>
+                    {% if s.is_phone_flagged %}
+                    <div class="text-danger" style="font-size:0.8rem;"><i class="fas fa-flag"></i> Wrong guardian number</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if s.today_status %}
+                    <span class="badge badge-{{ s.today_status }}">{{ s.today_status|title }}</span>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="d-flex gap-1">
+                        <form method="post" action="{% url 'academics:student_toggle_phone_flag' s.pk %}" style="display:inline;">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <button type="submit" class="btn btn-sm {% if s.is_phone_flagged %}btn-warning{% else %}btn-outline{% endif %}"
+                                title="{% if s.is_phone_flagged %}Unflag wrong guardian number{% else %}Flag wrong guardian number{% endif %}">
+                                <i class="fas fa-flag"></i>
+                            </button>
+                        </form>
+                        <a href="{% url 'academics:student_edit' s.pk %}" class="btn btn-sm btn-outline" title="Edit"><i
+                                class="fas fa-edit"></i></a>
+                        <a href="{% url 'academics:student_delete' s.pk %}" class="btn btn-sm btn-danger"
+                            title="Deactivate"><i class="fas fa-user-slash"></i></a>
+                    </div>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7" class="text-center text-muted">No students found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/tables.js' %}"></script>
+<script>
+async function bulkEncodeFaces() {
+    const btn = document.getElementById('bulkEncodeBtn');
+    const originalText = btn.innerHTML;
+    
+    if (!confirm('This will re-encode faces for all students. Continue?')) {
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    
+    try {
+        const response = await fetch('/api/bulk-encode/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}',
+            },
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            const msg = `✓ Encoded: ${data.results.encoded}, No Face Detected: ${data.results.no_face}, Failed: ${data.results.failed}`;
+            alert(msg);
+            if (data.results.errors.length > 0 && data.results.errors.length <= 10) {
+                alert('Errors:\n' + data.results.errors.join('\n'));
+            }
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || data.message || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Network error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function linkStudentsToUsers() {
+    const btn = document.getElementById('linkStudentsBtn');
+    const originalText = btn.innerHTML;
+    
+    if (!confirm('This will create user accounts for students without them. Continue?')) {
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    
+    try {
+        const response = await fetch('/api/link-students/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}',
+            },
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            const msg = `✓ Linked: ${data.results.linked}, Skipped: ${data.results.skipped}`;
+            alert(msg);
+            if (data.results.errors.length > 0 && data.results.errors.length <= 10) {
+                alert('Errors:\n' + data.results.errors.join('\n'));
+            }
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || data.message || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Network error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+</script>
+{% endblock %}
+

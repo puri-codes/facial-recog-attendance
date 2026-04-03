@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Monthly Report{% endblock %}
+{% block page_title %}Monthly Attendance Report{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <!-- Filters -->
+    <form method="get" class="filters-bar mb-3">
+        <div class="filter-group">
+            <label>Month</label>
+            <select name="month" class="filter-input" onchange="this.form.submit()">
+                {% for m in "123456789" %}
+                <option value="{{ forloop.counter }}" {% if month == forloop.counter %}selected{% endif %}>
+                    {{ forloop.counter }}
+                </option>
+                {% endfor %}
+                <option value="10" {% if month == 10 %}selected{% endif %}>10</option>
+                <option value="11" {% if month == 11 %}selected{% endif %}>11</option>
+                <option value="12" {% if month == 12 %}selected{% endif %}>12</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Year</label>
+            <input type="number" name="year" value="{{ year }}" class="filter-input" style="width:100px;"
+                onchange="this.form.submit()">
+        </div>
+        <div class="filter-group">
+            <label>Faculty</label>
+            <select name="faculty" class="filter-input" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for f in faculties %}
+                <option value="{{ f.pk }}" {% if selected_faculty == f.pk|stringformat:"d" %}selected{% endif %}>{{ f.name
+                    }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Class</label>
+            <select name="class" class="filter-input" onchange="this.form.submit()">
+                <option value="">All</option>
+                {% for c in classes %}
+                <option value="{{ c.pk }}" {% if selected_class == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name
+                    }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    <!-- Report Table -->
+    <div class="card">
+        <div class="table-container">
+            <table class="data-table" id="monthlyTable">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Class</th>
+                        <th>Faculty</th>
+                        <th>Total Days</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                        <th>Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in report_data %}
+                    <tr>
+                        <td><strong>{{ item.student.full_name }}</strong></td>
+                        <td>{{ item.student.academic_class.name }}</td>
+                        <td>{{ item.student.faculty.name }}</td>
+                        <td>{{ item.total }}</td>
+                        <td><span class="text-success">{{ item.present }}</span></td>
+                        <td><span class="text-danger">{{ item.absent }}</span></td>
+                        <td>
+                            <div class="d-flex align-center gap-1">
+                                <div class="progress-bar" style="width:80px; height:6px;">
+                                    <div class="progress-fill {% if item.percentage >= 75 %}success{% elif item.percentage >= 50 %}warning{% else %}danger{% endif %}"
+                                        style="width:{{ item.percentage }}%"></div>
+                                </div>
+                                <span style="font-size:0.85rem; font-weight:600;">{{ item.percentage }}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">No data for this period.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/tables.js' %}"></script>
+{% endblock %}

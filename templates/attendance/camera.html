@@ -1,0 +1,386 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Face Scan Attendance{% endblock %}
+{% block page_title %}Face Recognition Attendance{% endblock %}
+
+{% block content %}
+<div class="grid-2 animate-fade-in">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-camera"></i> Live Camera</h3>
+            <span class="camera-status" id="cameraStatus">Initializing...</span>
+        </div>
+
+        <div class="mb-2">
+            <div class="filter-group">
+                <label>Class Filter</label>
+                <select id="classFilter" class="filter-input">
+                    <option value="">Select Class</option>
+                    {% for c in classes %}
+                    <option value="{{ c.pk }}">{{ c.name }} - {{ c.faculty.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group mt-1">
+                <label>Class Time</label>
+                <input id="classTimeInput" class="filter-input" type="time" value="{{ default_class_time|default:'09:00' }}">
+            </div>
+            <div class="filter-group mt-1">
+                <label>Threshold Time</label>
+                <input id="thresholdTimeInput" class="filter-input" type="time" value="{{ default_threshold_time|default:'10:00' }}">
+            </div>
+            <div class="filter-group mt-1">
+                <label>End Time</label>
+                <input id="endTimeInput" class="filter-input" type="time" value="{{ default_end_time|default:'12:00' }}">
+            </div>
+            <div class="filter-group mt-1">
+                <label>Camera Device</label>
+                <select id="cameraDevice" class="filter-input">
+                    <option value="">Auto Select</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="camera-container" id="cameraContainer">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="overlay" class="camera-overlay"></canvas>
+        </div>
+
+        <div class="camera-controls mt-2">
+            <button class="btn btn-primary" id="startBtn">
+                <i class="fas fa-play"></i> Start Scanning
+            </button>
+            <button class="btn btn-danger" id="stopBtn" style="display:none;">
+                <i class="fas fa-stop"></i> Stop
+            </button>
+        </div>
+
+        {% if not face_recognition_available %}
+        <div class="alert alert-warning mt-2">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>face_recognition library is not installed. Face matching will not work, but face detection via OpenCV may still function.</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-list-check"></i> Recognition Results</h3>
+            <span class="text-muted" id="resultCount">0 detected</span>
+        </div>
+        <div class="recognition-results" id="results">
+            <div class="empty-state" id="emptyResults">
+                <i class="fas fa-face-smile-beam"></i>
+                <p>Start scanning to detect and recognize faces</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const ctx = overlay.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('cameraStatus');
+        const resultsEl = document.getElementById('results');
+        const resultCountEl = document.getElementById('resultCount');
+        const emptyResults = document.getElementById('emptyResults');
+        const classFilter = document.getElementById('classFilter');
+        const classTimeInput = document.getElementById('classTimeInput');
+        const thresholdTimeInput = document.getElementById('thresholdTimeInput');
+        const endTimeInput = document.getElementById('endTimeInput');
+        const cameraDevice = document.getElementById('cameraDevice');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}';
+
+        let scanning = false;
+        let scanInterval = null;
+        let stream = null;
+        let requestInFlight = false;
+        let cameraReady = false;
+        let absentInitialized = false;
+
+        function toMinutes(timeStr) {
+            const [hh, mm] = timeStr.split(':').map(Number);
+            return (hh * 60) + mm;
+        }
+
+        function validateInputs() {
+            const classId = classFilter.value;
+            const classTime = classTimeInput.value;
+            const thresholdTime = thresholdTimeInput.value;
+            const endTime = endTimeInput.value;
+
+            if (!classId) {
+                alert('Please select a class.');
+                return null;
+            }
+
+            if (!classTime || !thresholdTime || !endTime) {
+                alert('Please fill class time, threshold time, and end time.');
+                return null;
+            }
+
+            const classMinutes = toMinutes(classTime);
+            const thresholdMinutes = toMinutes(thresholdTime);
+            const endMinutes = toMinutes(endTime);
+            if (!(classMinutes <= thresholdMinutes && thresholdMinutes <= endMinutes)) {
+                alert('Invalid times: Class time must be before threshold, and threshold must be before end time.');
+                return null;
+            }
+
+            return { classId, classTime, thresholdTime, endTime };
+        }
+
+        function stopCameraStream() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            stream = null;
+            video.srcObject = null;
+            cameraReady = false;
+        }
+
+        function isLiveStream(s) {
+            if (!s) return false;
+            const tracks = s.getVideoTracks();
+            return tracks.length > 0 && tracks.some(t => t.readyState === 'live');
+        }
+
+        function buildConstraintAttempts() {
+            return [
+                { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'user' } } },
+                { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+                { video: true },
+            ];
+        }
+
+        async function refreshCameraList() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoInputs = devices.filter(d => d.kind === 'videoinput');
+                const previousValue = cameraDevice.value;
+
+                cameraDevice.innerHTML = '<option value="">Auto Select</option>';
+                videoInputs.forEach((d, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `Camera ${idx + 1}`;
+                    cameraDevice.appendChild(opt);
+                });
+
+                if (previousValue && videoInputs.some(d => d.deviceId === previousValue)) {
+                    cameraDevice.value = previousValue;
+                }
+            } catch (err) {
+                console.warn('Could not refresh camera list:', err);
+            }
+        }
+
+        async function startCamera(showAlert = true) {
+            if (isLiveStream(stream)) {
+                cameraReady = true;
+                return true;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                cameraReady = false;
+                statusEl.textContent = 'Camera API unavailable';
+                if (showAlert) alert('Your browser does not support camera access on this page.');
+                return false;
+            }
+
+            stopCameraStream();
+            statusEl.textContent = 'Starting camera...';
+
+            const attempts = buildConstraintAttempts();
+            const selectedDeviceId = cameraDevice.value;
+
+            if (selectedDeviceId) {
+                attempts.unshift({
+                    video: {
+                        deviceId: { exact: selectedDeviceId },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                    },
+                });
+            }
+
+            for (const constraints of attempts) {
+                try {
+                    const candidate = await navigator.mediaDevices.getUserMedia(constraints);
+                    stream = candidate;
+                    video.srcObject = stream;
+                    video.muted = true;
+                    video.onloadedmetadata = () => {
+                        overlay.width = video.videoWidth;
+                        overlay.height = video.videoHeight;
+                    };
+                    await video.play();
+                    statusEl.textContent = 'Camera Ready';
+                    cameraReady = true;
+                    refreshCameraList();
+                    return true;
+                } catch (err) {
+                    stopCameraStream();
+                    await new Promise(resolve => setTimeout(resolve, 250));
+                }
+            }
+
+            cameraReady = false;
+            statusEl.textContent = 'Camera blocked/unavailable';
+            if (showAlert) alert('Cannot access camera. Allow camera permission and retry.');
+            return false;
+        }
+
+        function captureFrame() {
+            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+                return null;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            if (!dataUrl || dataUrl === 'data:,') return null;
+            return dataUrl;
+        }
+
+        async function scanFrame() {
+            if (!scanning || requestInFlight) return;
+
+            const config = validateInputs();
+            if (!config) {
+                stopBtn.click();
+                return;
+            }
+
+            const imageData = captureFrame();
+            if (!imageData) {
+                statusEl.textContent = 'Waiting for camera frame...';
+                return;
+            }
+
+            requestInFlight = true;
+            try {
+                const response = await fetch('/api/recognize/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        image: imageData,
+                        class_id: parseInt(config.classId, 10),
+                        class_start_time: config.classTime,
+                        threshold_time: config.thresholdTime,
+                        end_time: config.endTime,
+                        initialize_absent: !absentInitialized,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    statusEl.textContent = data.error || 'Scan failed';
+                    return;
+                }
+
+                absentInitialized = true;
+                statusEl.textContent = `Scanning... threshold ${config.thresholdTime}, end ${config.endTime}`;
+
+                ctx.clearRect(0, 0, overlay.width, overlay.height);
+                if (data.results) {
+                    data.results.forEach(r => {
+                        const bbox = r.bbox;
+                        ctx.strokeStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(bbox.left, bbox.top, bbox.right - bbox.left, bbox.bottom - bbox.top);
+
+                        const label = r.matched ? `${r.student_name} (${r.confidence}%)` : 'Unknown';
+                        ctx.fillStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.font = 'bold 14px Inter, sans-serif';
+                        const textW = ctx.measureText(label).width;
+                        ctx.fillRect(bbox.left, bbox.top - 24, textW + 12, 24);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillText(label, bbox.left + 6, bbox.top - 7);
+                    });
+
+                    data.results.forEach(r => {
+                        if (r.matched && !r.already_marked) addResult(r);
+                    });
+                    resultCountEl.textContent = `${data.faces_detected} face(s) detected`;
+                }
+            } catch (err) {
+                statusEl.textContent = 'Scan error';
+            } finally {
+                requestInFlight = false;
+            }
+        }
+
+        function addResult(r) {
+            if (emptyResults) emptyResults.style.display = 'none';
+            if (document.getElementById('result-' + r.student_id)) return;
+
+            const badgeStatus = (r.attendance_status || r.status || 'present').toLowerCase();
+            const badgeLabel = r.status || (r.attendance_status || 'present');
+            const div = document.createElement('div');
+            div.className = 'recognition-item matched';
+            div.id = 'result-' + r.student_id;
+            div.innerHTML = `
+                <div class="stat-icon success"><i class="fas fa-check"></i></div>
+                <div style="flex:1;">
+                    <strong>${r.student_name}</strong>
+                    <div class="text-muted" style="font-size:0.8rem;">
+                        ${badgeLabel} - ${r.confidence}% confidence
+                    </div>
+                </div>
+                <span class="badge badge-${badgeStatus}">${badgeLabel}</span>
+            `;
+            resultsEl.prepend(div);
+        }
+
+        startBtn.addEventListener('click', () => {
+            (async () => {
+                if (!validateInputs()) return;
+                const ok = await startCamera();
+                if (!ok || !cameraReady) return;
+
+                absentInitialized = false;
+                scanning = true;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-flex';
+                statusEl.textContent = 'Scanning...';
+                scanFrame();
+                scanInterval = setInterval(scanFrame, 2000);
+            })();
+        });
+
+        stopBtn.addEventListener('click', () => {
+            scanning = false;
+            clearInterval(scanInterval);
+            startBtn.style.display = 'inline-flex';
+            stopBtn.style.display = 'none';
+            statusEl.textContent = 'Stopped';
+            requestInFlight = false;
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            stopCameraStream();
+        });
+
+        refreshCameraList();
+        statusEl.textContent = 'Fill filters and click Start Scanning';
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopCameraStream();
+        });
+        window.addEventListener('beforeunload', () => {
+            stopCameraStream();
+        });
+    })();
+</script>
+{% endblock %}

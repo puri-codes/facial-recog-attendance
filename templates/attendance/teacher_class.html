@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}{{ class.name }} Attendance{% endblock %}
+{% block page_title %}{{ class.name }} — Attendance{% endblock %}
+
+{% block content %}
+<div class="animate-fade-in">
+    <form method="get" class="filters-bar mb-3">
+        <div class="filter-group">
+            <label>Date</label>
+            <input type="date" name="date" value="{{ selected_date }}" class="filter-input"
+                onchange="this.form.submit()">
+        </div>
+        <div class="filter-group">
+            <label>Search</label>
+            <input type="text" name="search" value="{{ search }}" placeholder="Student name..." class="search-input">
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-search"></i></button>
+    </form>
+
+    <div class="card">
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in student_list %}
+                    <tr>
+                        <td>
+                            <div class="d-flex align-center gap-1">
+                                {% if item.student.profile_image %}
+                                <img src="{{ item.student.profile_image.url }}" alt="" class="student-avatar">
+                                {% endif %}
+                                <strong>{{ item.student.full_name }}</strong>
+                            </div>
+                        </td>
+                        <td>
+                            {% if item.attendance %}
+                            <span class="badge badge-{{ item.status }}">{{ item.attendance.get_status_display }}</span>
+                            {% else %}
+                            <span class="text-muted">Not marked</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.attendance %}
+                            <a href="{% url 'attendance:teacher_correct' item.attendance.pk %}"
+                                class="btn btn-sm btn-outline">
+                                <i class="fas fa-edit"></i> Correct
+                            </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="3" class="text-center text-muted">No students found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

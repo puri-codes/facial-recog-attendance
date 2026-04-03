@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}Faculties{% endblock %}
+{% block page_title %}Faculties{% endblock %}
+
+{% block top_actions %}
+<a href="{% url 'academics:faculty_create' %}" class="btn btn-primary btn-sm">
+    <i class="fas fa-plus"></i> Add Faculty
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="grid-3 animate-fade-in">
+    {% for f in faculties %}
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">{{ f.name }}</h3>
+        </div>
+        <p class="text-muted mb-2" style="font-size: 0.85rem;">{{ f.description|default:"No description" }}</p>
+        <div class="d-flex gap-1 mb-2">
+            <span class="badge badge-present">{{ f.class_count }} Classes</span>
+            <span class="badge badge-informed">{{ f.student_count }} Students</span>
+        </div>
+        <div class="d-flex gap-1">
+            <a href="{% url 'academics:faculty_edit' f.pk %}" class="btn btn-sm btn-outline"><i class="fas fa-edit"></i>
+                Edit</a>
+            <a href="{% url 'academics:faculty_delete' f.pk %}" class="btn btn-sm btn-danger"><i
+                    class="fas fa-trash"></i></a>
+        </div>
+    </div>
+    {% empty %}
+    <div class="empty-state" style="grid-column: 1/-1;">
+        <i class="fas fa-building-columns"></i>
+        <p>No faculties created yet.</p>
+        <a href="{% url 'academics:faculty_create' %}" class="btn btn-primary">Create Faculty</a>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

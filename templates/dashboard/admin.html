@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Dashboard Overview{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-grid animate-fade-in">
+    <div class="stat-card primary">
+        <div class="stat-icon primary"><i class="fas fa-user-graduate"></i></div>
+        <div class="stat-content">
+            <div class="stat-value">{{ total_students }}</div>
+            <div class="stat-label">Total Students</div>
+        </div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-icon success"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-content">
+            <div class="stat-value">{{ present_count }}</div>
+            <div class="stat-label">Present Today</div>
+        </div>
+    </div>
+    <div class="stat-card danger">
+        <div class="stat-icon danger"><i class="fas fa-times-circle"></i></div>
+        <div class="stat-content">
+            <div class="stat-value">{{ absent_count }}</div>
+            <div class="stat-label">Absent Today</div>
+        </div>
+    </div>
+    <div class="stat-card warning">
+        <div class="stat-icon warning"><i class="fas fa-chart-line"></i></div>
+        <div class="stat-content">
+            <div class="stat-value">{{ attendance_rate }}%</div>
+            <div class="stat-label">Attendance Rate</div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="grid-2 mb-3">
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-bolt"></i> Quick Actions</h3>
+        </div>
+        <div class="d-flex flex-wrap gap-1">
+            <a href="{% url 'attendance:camera' %}" class="btn btn-primary">
+                <i class="fas fa-camera"></i> Face Scan
+            </a>
+            <a href="{% url 'attendance:manual' %}" class="btn btn-outline">
+                <i class="fas fa-clipboard-check"></i> Manual Attendance
+            </a>
+            <a href="{% url 'academics:student_enroll' %}" class="btn btn-success">
+                <i class="fas fa-user-plus"></i> Enroll Student
+            </a>
+            <a href="{% url 'academics:faculty_create' %}" class="btn btn-outline">
+                <i class="fas fa-plus"></i> Add Faculty
+            </a>
+            <a href="{% url 'academics:class_create' %}" class="btn btn-outline">
+                <i class="fas fa-plus"></i> Add Class
+            </a>
+        </div>
+    </div>
+
+    <div class="card animate-fade-in">
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-building-columns"></i> Faculties</h3>
+            <a href="{% url 'academics:faculty_list' %}" class="btn btn-sm btn-outline">View All</a>
+        </div>
+        {% for f in faculties %}
+        <div class="d-flex justify-between align-center"
+            style="padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+            <span>{{ f.name }}</span>
+            <span class="badge badge-present">{{ f.student_count }} students</span>
+        </div>
+        {% empty %}
+        <p class="text-muted">No faculties yet.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Recent Students -->
+<div class="card animate-fade-in">
+    <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-clock"></i> Recently Enrolled</h3>
+        <a href="{% url 'academics:student_list' %}" class="btn btn-sm btn-outline">View All</a>
+    </div>
+    <div class="table-container">
+        <table class="data-table" id="recentTable">
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Class</th>
+                    <th>Faculty</th>
+                    <th>Year</th>
+                    <th>Today</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in recent_students %}
+                <tr>
+                    <td class="d-flex align-center gap-1">
+                        {% if s.profile_image %}
+                        <img src="{{ s.profile_image.url }}" alt="" class="student-avatar">
+                        {% else %}
+                        <div class="student-avatar d-flex align-center"
+                            style="justify-content:center; background:var(--bg-secondary);"><i class="fas fa-user"></i>
+                        </div>
+                        {% endif %}
+                        {{ s.full_name }}
+                    </td>
+                    <td>{{ s.academic_class.name }}</td>
+                    <td>{{ s.faculty.name }}</td>
+                    <td>{{ s.enrollment_year }}</td>
+                    <td>
+                        {% with status=attendance_map|default_if_none:"" %}
+                        <span class="badge badge-{{ status|default:'absent' }}">{{ status|default:"—" }}</span>
+                        {% endwith %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted">No students enrolled yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

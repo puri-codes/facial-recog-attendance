@@ -1,0 +1,308 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Face Recognition Login{% endblock %}
+
+{% block auth_content %}
+<div class="auth-card">
+    <div class="auth-logo">
+        <i class="fas fa-face-smile-beam"></i>
+        <h1>FaceAttend</h1>
+        <p>Sign in with your face</p>
+    </div>
+
+    <div class="camera-container" id="cameraContainer" style="margin: 20px 0; border-radius: 8px; overflow: hidden;">
+        <video id="video" autoplay playsinline style="width: 100%; display: block;"></video>
+        <canvas id="overlay" class="camera-overlay" style="position: absolute; top: 0; left: 0;"></canvas>
+    </div>
+
+    <div style="display: flex; gap: 8px; margin: 16px 0;">
+        <button class="btn btn-primary" id="startBtn" style="flex: 1;">
+            <i class="fas fa-play"></i> Start Camera
+        </button>
+        <button class="btn btn-danger" id="stopBtn" style="flex: 1; display:none;">
+            <i class="fas fa-stop"></i> Stop
+        </button>
+    </div>
+
+    <div style="text-align: center; padding: 12px; background: #f0f9ff; border-radius: 4px; margin-bottom: 16px;">
+        <p style="margin: 0; font-size: 0.9rem; color: #0369a1;">
+            <span id="cameraStatus">Click Start Camera to begin scanning</span>
+        </p>
+    </div>
+
+    {% if not face_recognition_available %}
+    <div class="alert alert-warning" style="margin-bottom: 16px;">
+        <i class="fas fa-exclamation-triangle"></i>
+        <span>Face recognition is not available. Please use <a href="{% url 'accounts:login' %}" style="color: inherit; font-weight: 600;">traditional login</a>.</span>
+    </div>
+    {% endif %}
+
+    <div id="results" style="margin: 16px 0; min-height: 40px;">
+        <div style="text-align: center; color: #999;">
+            <p style="margin: 0;"><i class="fas fa-face-smile-beam"></i></p>
+            <p style="margin: 8px 0 0 0; font-size: 0.9rem;">Position your face to login</p>
+        </div>
+    </div>
+
+    <div style="border-top: 1px solid #e5e7eb; padding-top: 16px;">
+        <p style="text-align: center; font-size: 0.85rem; color: #666; margin: 0 0 12px 0;">Don't have your face registered?</p>
+        <a href="{% url 'accounts:login' %}" class="btn btn-secondary" style="width: 100%; text-align: center;">
+            <i class="fas fa-sign-in-alt"></i> Traditional Login
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const ctx = overlay.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusEl = document.getElementById('cameraStatus');
+        const resultsEl = document.getElementById('results');
+        const emptyResults = document.getElementById('emptyResults');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+            '{{ csrf_token }}';
+
+        let scanning = false;
+        let scanInterval = null;
+        let stream = null;
+        let requestInFlight = false;
+        let cameraReady = false;
+        let loginSucceeded = false;
+
+        function stopCameraStream() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            stream = null;
+            video.srcObject = null;
+            cameraReady = false;
+        }
+
+        function isLiveStream(s) {
+            if (!s) return false;
+            const tracks = s.getVideoTracks();
+            return tracks.length > 0 && tracks.some(t => t.readyState === 'live');
+        }
+
+        function buildConstraintAttempts() {
+            const attempts = [
+                { video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'user' } } },
+                { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+                { video: true },
+            ];
+            return attempts;
+        }
+
+        // Start camera
+        async function startCamera(showAlert = true) {
+            if (isLiveStream(stream)) {
+                cameraReady = true;
+                return true;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                cameraReady = false;
+                statusEl.textContent = 'Camera API unavailable';
+                if (showAlert) {
+                    alert('Your browser does not support camera access.');
+                }
+                return false;
+            }
+
+            stopCameraStream();
+            statusEl.textContent = 'Starting camera...';
+
+            const attempts = buildConstraintAttempts();
+            let lastErr = null;
+
+            for (const constraints of attempts) {
+                try {
+                    const candidate = await navigator.mediaDevices.getUserMedia(constraints);
+                    stream = candidate;
+                    video.srcObject = stream;
+                    video.muted = true;
+                    video.onloadedmetadata = () => {
+                        overlay.width = video.videoWidth;
+                        overlay.height = video.videoHeight;
+                    };
+                    await video.play();
+
+                    statusEl.textContent = 'Camera Ready';
+                    statusEl.classList.add('active');
+                    cameraReady = true;
+                    return true;
+                } catch (err) {
+                    lastErr = err;
+                    console.warn('Camera start attempt failed:', constraints, err);
+                    stopCameraStream();
+                    await new Promise(resolve => setTimeout(resolve, 250));
+                }
+            }
+
+            cameraReady = false;
+            statusEl.textContent = 'Camera blocked/unavailable';
+            if (showAlert) {
+                const details = lastErr ? `${lastErr.name || 'Error'}: ${lastErr.message || 'Unknown camera error'}` : 'Unknown camera error';
+                alert('Cannot access camera. Allow camera permission and try again. Details: ' + details);
+            }
+            return false;
+        }
+
+        // Capture frame as base64
+        function captureFrame() {
+            if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+                return null;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            if (!dataUrl || dataUrl === 'data:,') {
+                return null;
+            }
+            return dataUrl;
+        }
+
+        // Send frame to API for login
+        async function scanFrame() {
+            if (!scanning || requestInFlight || loginSucceeded) return;
+
+            const imageData = captureFrame();
+            if (!imageData) {
+                statusEl.textContent = 'Waiting for camera frame...';
+                return;
+            }
+
+            requestInFlight = true;
+
+            try {
+                const response = await fetch('/api/face-login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        image: imageData,
+                    }),
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    statusEl.textContent = data.error || 'Scan failed';
+                    return;
+                }
+
+                statusEl.textContent = 'Scanning...';
+
+                // Draw bounding boxes
+                ctx.clearRect(0, 0, overlay.width, overlay.height);
+                if (data.results) {
+                    data.results.forEach(r => {
+                        const bbox = r.bbox;
+                        ctx.strokeStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(bbox.left, bbox.top, bbox.right - bbox.left, bbox.bottom - bbox.top);
+
+                        // Label
+                        const label = r.matched ? `${r.student_name} (${r.confidence}%)` : 'Unknown';
+                        ctx.fillStyle = r.matched ? '#10b981' : '#ef4444';
+                        ctx.font = 'bold 14px Inter, sans-serif';
+                        const textW = ctx.measureText(label).width;
+                        ctx.fillRect(bbox.left, bbox.top - 24, textW + 12, 24);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillText(label, bbox.left + 6, bbox.top - 7);
+
+                        // Handle login success
+                        if (r.login_success) {
+                            loginSucceeded = true;
+                            addLoginSuccess(r);
+                            
+                            // Stop scanning and show success message
+                            scanning = false;
+                            clearInterval(scanInterval);
+                            statusEl.textContent = 'Login successful! Redirecting...';
+                            
+                            // Redirect after 1.5 seconds
+                            setTimeout(() => {
+                                window.location.href = r.redirect_url || '/';
+                            }, 1500);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error('Scan error:', err);
+                statusEl.textContent = 'Scan error';
+            } finally {
+                requestInFlight = false;
+            }
+        }
+
+        function addLoginSuccess(r) {
+            if (emptyResults) emptyResults.style.display = 'none';
+
+            const div = document.createElement('div');
+            div.className = 'recognition-item matched';
+            div.innerHTML = `
+            <div class="stat-icon success"><i class="fas fa-check-circle"></i></div>
+            <div style="flex:1;">
+                <strong>${r.student_name}</strong>
+                <div class="text-muted" style="font-size:0.8rem;">
+                    Logged in — ${r.confidence}% confidence
+                </div>
+            </div>
+            <span class="badge badge-success">Success</span>
+        `;
+            resultsEl.innerHTML = '';
+            resultsEl.prepend(div);
+        }
+
+        // Start scanning
+        startBtn.addEventListener('click', () => {
+            (async () => {
+                const ok = await startCamera();
+                if (!ok || !cameraReady) return;
+
+                scanning = true;
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-flex';
+                statusEl.textContent = 'Scanning...';
+                scanFrame();
+                scanInterval = setInterval(scanFrame, 1500); // Scan every 1.5 seconds
+            })();
+        });
+
+        // Stop scanning
+        stopBtn.addEventListener('click', () => {
+            scanning = false;
+            clearInterval(scanInterval);
+            startBtn.style.display = 'inline-flex';
+            stopBtn.style.display = 'none';
+            statusEl.textContent = 'Stopped';
+            requestInFlight = false;
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+            stopCameraStream();
+        });
+
+        // Initialize on page load
+        statusEl.textContent = 'Click Start Camera';
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopCameraStream();
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            stopCameraStream();
+        });
+    })();
+</script>
+{% endblock %}

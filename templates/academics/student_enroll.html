@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card animate-fade-in" style="max-width: 700px;">
+    {% if student and student.profile_image %}
+    <div class="mb-3 text-center">
+        <img src="{{ student.profile_image.url }}" alt="" class="student-avatar-lg" id="previewImage">
+        <div style="margin-top: 12px;" id="encodingStatus"></div>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" id="studentForm">
+        {% csrf_token %}
+        <div class="form-grid">
+            {% for field in form %}
+            {% if field.name == 'phone_country_code' or field.name == 'guardian_phone_country_code' %}
+            {% elif field.name == 'phone' %}
+            <div class="form-group">
+                <label class="form-label" for="{{ field.id_for_label }}">Student Phone</label>
+                <div class="d-flex gap-1">
+                    {{ form.phone_country_code }}
+                    {{ field }}
+                </div>
+                {% if form.phone_country_code.errors %}
+                <span class="text-danger" style="font-size:0.8rem;">{{ form.phone_country_code.errors.0 }}</span>
+                {% endif %}
+                {% if field.errors %}
+                <span class="text-danger" style="font-size:0.8rem;">{{ field.errors.0 }}</span>
+                {% endif %}
+            </div>
+            {% elif field.name == 'guardian_phone' %}
+            <div class="form-group">
+                <label class="form-label" for="{{ field.id_for_label }}">Guardian Phone</label>
+                <div class="d-flex gap-1">
+                    {{ form.guardian_phone_country_code }}
+                    {{ field }}
+                </div>
+                {% if form.guardian_phone_country_code.errors %}
+                <span class="text-danger" style="font-size:0.8rem;">{{ form.guardian_phone_country_code.errors.0 }}</span>
+                {% endif %}
+                {% if field.errors %}
+                <span class="text-danger" style="font-size:0.8rem;">{{ field.errors.0 }}</span>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="form-group">
+                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {% if field.name == 'profile_image' %}
+                    {{ field }}
+                    <div id="faceEncodingStatus" style="margin-top: 12px; display: none;">
+                        <div id="encodingLoader" style="text-align: center;">
+                            <i class="fas fa-spinner fa-spin" style="color: #3b82f6;"></i> Analyzing face...
+                        </div>
+                    </div>
+                {% else %}
+                    {{ field }}
+                {% endif %}
+                {% if field.errors %}
+                <span class="text-danger" style="font-size:0.8rem;">{{ field.errors.0 }}</span>
+                {% endif %}
+                {% if field.help_text %}
+                <span class="text-muted" style="font-size:0.75rem;">{{ field.help_text }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Student</button>
+            <a href="{% url 'academics:student_list' %}" class="btn btn-outline">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('studentForm');
+    const fileInput = form.querySelector('input[type="file"][name="profile_image"]');
+    const previewImage = document.getElementById('previewImage');
+    const statusDiv = document.getElementById('faceEncodingStatus');
+    const loaderDiv = document.getElementById('encodingLoader');
+    
+    if (!fileInput) return;
+    
+    fileInput.addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) {
+            statusDiv.style.display = 'none';
+            return;
+        }
+        
+        // Show preview
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            if (previewImage) {
+                previewImage.src = event.target.result;
+            }
+        };
+        reader.readAsDataURL(file);
+        
+        // Real-time face encoding analysis
+        statusDiv.style.display = 'block';
+        loaderDiv.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #3b82f6;"></i> Analyzing face...';
+        
+        try {
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            // Convert file to base64 for API
+            const base64 = await new Promise((resolve) => {
+                const fileReader = new FileReader();
+                fileReader.onload = () => resolve(fileReader.result);
+                fileReader.readAsDataURL(file);
+            });
+            
+            const response = await fetch('/api/encode-face/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}',
+                },
+                body: JSON.stringify({ image: base64 }),
+            });
+            
+            const data = await response.json();
+            
+            if (data.success && data.encoding_generated) {
+                loaderDiv.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981; font-size: 1.2em;"></i> <strong style="color: #10b981;">Face detected and ready for enrollment!</strong>';
+            } else if (!data.success) {
+                loaderDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #ef4444; font-size: 1.2em;"></i> <strong style="color: #ef4444;">' + (data.message || 'Face not detected') + '</strong>';
+            } else {
+                loaderDiv.innerHTML = '<i class="fas fa-info-circle" style="color: #f59e0b; font-size: 1.2em;"></i> <strong style="color: #f59e0b;">Image ready (face will be analyzed on save)</strong>';
+            }
+        } catch (error) {
+            loaderDiv.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i> Could not analyze image: ' + error.message;
+        }
+    });
+});
+</script>
+{% endblock %}
