@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-change-me-in-production-!@#$%^&*()'
 
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', '0') == '1'
 
 ALLOWED_HOSTS = ['*']
 
@@ -93,9 +93,18 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 # Dev/demo auth bypass
-BYPASS_LOGIN = DEBUG and os.environ.get('BYPASS_LOGIN', '1') == '1'
+BYPASS_LOGIN = (
+    DEBUG
+    and os.environ.get('BYPASS_LOGIN', '1') == '1'
+    and not os.environ.get('VERCEL')
+)
 BYPASS_LOGIN_USERNAME = os.environ.get('BYPASS_LOGIN_USERNAME', 'admin')
 BYPASS_LOGIN_AUTO_CREATE_USER = os.environ.get('BYPASS_LOGIN_AUTO_CREATE_USER', '1') == '1'
+
+# Vercel serverless runtime has a read-only deployment filesystem.
+# Use signed cookie sessions to avoid DB writes for session data.
+if os.environ.get('VERCEL'):
+    SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 
 # REST Framework
 REST_FRAMEWORK = {

@@ -11,6 +11,11 @@
             <span class="camera-status" id="cameraStatus">Initializing...</span>
         </div>
 
+        <div class="alert alert-warning mt-2" id="secureContextWarning" style="display:none;">
+            <i class="fas fa-shield-alt"></i>
+            <span>Camera access requires HTTPS or localhost. Open the app through the HTTPS launcher for LAN use.</span>
+        </div>
+
         <div class="mb-2">
             <div class="filter-group">
                 <label>Class Filter</label>
@@ -95,6 +100,7 @@
         const thresholdTimeInput = document.getElementById('thresholdTimeInput');
         const endTimeInput = document.getElementById('endTimeInput');
         const cameraDevice = document.getElementById('cameraDevice');
+        const secureContextWarning = document.getElementById('secureContextWarning');
         const csrfToken = (document.cookie
             .split('; ')
             .find(row => row.startsWith('csrftoken='))
@@ -106,6 +112,12 @@
         let requestInFlight = false;
         let cameraReady = false;
         let absentInitialized = false;
+
+        if (!window.isSecureContext) {
+            secureContextWarning.style.display = 'block';
+            startBtn.disabled = true;
+            statusEl.textContent = 'HTTPS required for camera access';
+        }
 
         function toMinutes(timeStr) {
             const [hh, mm] = timeStr.split(':').map(Number);

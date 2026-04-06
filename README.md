@@ -81,6 +81,16 @@ Visit **http://127.0.0.1:8000/** on the same machine, or **http://<your-local-ip
 
 If the app needs to talk to another Django API on your LAN, set `REMOTE_API_URL` to that machine's intranet address before running the scripts.
 
+### 6. Enable Camera Access on LAN
+
+Browsers block camera access on plain HTTP when you open the app by IP address. Use the HTTPS launcher instead:
+
+```bash
+python run_https.py --host 0.0.0.0 --port 8443
+```
+
+Then open **https://<your-local-ip>:8443/** from the browser. The launcher generates a local development certificate and trusts it for the current Windows user so `getUserMedia()` can work on the LAN.
+
 ## Project Structure
 
 ```
