@@ -9,6 +9,7 @@ urlpatterns = [
     path('mark-attendance/', views.api_mark_attendance, name='mark_attendance'),
     path('recognize/', views.api_recognize_face, name='recognize'),
     path('encode-face/', views.api_encode_face, name='encode_face'),
+    path('import-students/', views.api_import_students_from_database, name='import_students'),
     path('bulk-encode/', views.api_bulk_encode_faces, name='bulk_encode'),
     path('link-students/', views.api_link_students_to_users, name='link_students'),
     

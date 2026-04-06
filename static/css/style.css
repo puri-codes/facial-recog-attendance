@@ -764,12 +764,13 @@ body {
 /* ─── Camera View ────────────────────────────────────────── */
 .camera-container {
     position: relative;
-    max-width: 720px;
+    max-width: min(50vw, 860px);
     margin: 0 auto;
     border-radius: var(--radius-xl);
     overflow: hidden;
     border: 2px solid var(--border-color);
     background: #000;
+    aspect-ratio: 16 / 9;
 }
 
 .camera-container video,
@@ -1052,6 +1053,27 @@ body {
     gap: 24px;
 }
 
+.face-scan-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+    align-items: start;
+}
+
+.face-scan-camera-card {
+    min-height: 0;
+}
+
+.face-scan-results-card {
+    max-height: 72vh;
+    overflow: hidden;
+}
+
+.face-scan-results-card .recognition-results {
+    margin-top: 0;
+    max-height: calc(72vh - 72px);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
 .grid-3 {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -1204,6 +1226,23 @@ body {
 
     .grid-2, .grid-3 {
         grid-template-columns: 1fr;
+    }
+
+    .face-scan-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .face-scan-results-card {
+        max-height: none;
+    }
+
+    .face-scan-results-card .recognition-results {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .camera-container {
+        max-width: 100%;
     }
 
     .form-grid {

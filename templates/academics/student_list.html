@@ -10,8 +10,8 @@
 <a href="{% url 'academics:student_enroll_webcam' %}" class="btn btn-primary btn-sm">
     <i class="fas fa-camera"></i> Enroll (Webcam)
 </a>
-<button class="btn btn-info btn-sm" id="bulkEncodeBtn" onclick="bulkEncodeFaces()">
-    <i class="fas fa-sync"></i> Encode All Faces
+<button class="btn btn-info btn-sm" id="bulkEncodeBtn" onclick="syncAndEncodeFaces()">
+    <i class="fas fa-database"></i> Encode All Faces (Live Sync)
 </button>
 <button class="btn btn-warning btn-sm" id="linkStudentsBtn" onclick="linkStudentsToUsers()">
     <i class="fas fa-link"></i> Link Students to Accounts
@@ -139,6 +139,102 @@
 {% block extra_js %}
 <script src="{% static 'js/tables.js' %}"></script>
 <script>
+function getCsrfToken() {
+    const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrftoken='))
+        ?.split('=')[1];
+    return cookieValue || '{{ csrf_token }}';
+}
+
+async function parseApiResponse(response) {
+    const raw = await response.text();
+    const contentType = response.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+        return JSON.parse(raw || '{}');
+    }
+
+    let maybeJson = null;
+    try {
+        maybeJson = JSON.parse(raw);
+    } catch (e) {
+        maybeJson = null;
+    }
+
+    if (maybeJson) {
+        return maybeJson;
+    }
+
+    const snippet = (raw || '').replace(/\s+/g, ' ').slice(0, 220);
+    throw new Error(`Server returned non-JSON response (HTTP ${response.status}). ${snippet || 'No response body.'}`);
+}
+
+async function postJson(url, body = {}) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+        },
+        body: JSON.stringify(body),
+    });
+
+    const data = await parseApiResponse(response);
+    if (!response.ok) {
+        throw new Error(data.error || data.message || `Request failed with status ${response.status}`);
+    }
+    return data;
+}
+
+async function syncAndEncodeFaces() {
+    const btn = document.getElementById('bulkEncodeBtn');
+    const originalText = btn.innerHTML;
+    
+    if (!confirm('This will:\n1. Import students from remote database\n2. Download their profile images\n3. Encode their faces\n\nContinue?')) {
+        return;
+    }
+    
+    btn.disabled = true;
+    
+    try {
+        // Step 1: Import students from remote database
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing students...';
+        
+        let data = await postJson('/api/import-students/');
+        
+        const importResults = data.results;
+        const importMsg = `✓ Import Complete:\n- New: ${importResults.created}\n- Updated: ${importResults.updated}\n- Failed: ${importResults.failed}\n- Remote Students: ${importResults.remote_students_fetched || 0}\n- Remote Courses: ${importResults.remote_courses_fetched || 0}`;
+        alert(importMsg);
+        
+        if (importResults.errors.length > 0 && importResults.errors.length <= 10) {
+            alert('Import Errors:\n' + importResults.errors.join('\n'));
+        }
+        
+        // Step 2: Encode all faces
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Encoding faces...';
+        
+        data = await postJson('/api/bulk-encode/');
+        
+        if (data.success) {
+            const encodeResults = data.results;
+            const msg = `✓ Face Encoding Complete:\n- Encoded: ${encodeResults.encoded}\n- No Face Detected: ${encodeResults.no_face}\n- Failed: ${encodeResults.failed}`;
+            alert(msg);
+            if (encodeResults.errors.length > 0 && encodeResults.errors.length <= 10) {
+                alert('Encoding Errors:\n' + encodeResults.errors.join('\n'));
+            }
+            location.reload();
+        } else {
+            alert('Encoding Error: ' + (data.error || data.message || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
 async function bulkEncodeFaces() {
     const btn = document.getElementById('bulkEncodeBtn');
     const originalText = btn.innerHTML;
@@ -151,17 +247,9 @@ async function bulkEncodeFaces() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
     
     try {
-        const response = await fetch('/api/bulk-encode/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': '{{ csrf_token }}',
-            },
-        });
+        const data = await postJson('/api/bulk-encode/');
         
-        const data = await response.json();
-        
-        if (response.ok && data.success) {
+        if (data.success) {
             const msg = `✓ Encoded: ${data.results.encoded}, No Face Detected: ${data.results.no_face}, Failed: ${data.results.failed}`;
             alert(msg);
             if (data.results.errors.length > 0 && data.results.errors.length <= 10) {
@@ -191,17 +279,9 @@ async function linkStudentsToUsers() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
     
     try {
-        const response = await fetch('/api/link-students/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': '{{ csrf_token }}',
-            },
-        });
+        const data = await postJson('/api/link-students/');
         
-        const data = await response.json();
-        
-        if (response.ok && data.success) {
+        if (data.success) {
             const msg = `✓ Linked: ${data.results.linked}, Skipped: ${data.results.skipped}`;
             alert(msg);
             if (data.results.errors.length > 0 && data.results.errors.length <= 10) {

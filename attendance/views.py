@@ -1,4 +1,5 @@
 import numpy as np
+import logging
 from datetime import datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -10,6 +11,13 @@ from django.conf import settings
 from django.db.models import Count, Q
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+
+# Suppress urllib3 SSL warnings for development
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -24,6 +32,8 @@ from .face_utils import (
     decode_base64_image, detect_faces, encode_face_from_array,
     match_face, FACE_RECOGNITION_AVAILABLE,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_time_setting(setting_name, fallback):
@@ -321,6 +331,278 @@ def api_encode_face(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def api_import_students_from_database(request):
+    """
+    Import students from remote API and update local database.
+    Admin only.
+    """
+    # Check admin permission
+    if request.user.role != 'admin':
+        return Response({'error': 'Admin access required'}, status=403)
+
+    import json
+    import ssl
+    from django.core.files.base import ContentFile
+    from urllib.error import HTTPError, URLError
+    from urllib.request import Request, urlopen
+    from urllib.parse import urlparse
+    import os
+    
+    try:
+        # API Configuration
+        API_BASE_URL = getattr(settings, 'REMOTE_API_URL', 'http://10.20.46.165:8000')
+        API_TOKEN_URL = f"{API_BASE_URL}/api/auth/token/"
+        API_STUDENTS_URL = f"{API_BASE_URL}/api/students/"
+        API_COURSES_URL = f"{API_BASE_URL}/api/courses/"
+        USERNAME = getattr(settings, 'REMOTE_API_USERNAME', 'admin')
+        PASSWORD = getattr(settings, 'REMOTE_API_PASSWORD', 'admin')
+
+        try:
+            import requests as requests_lib
+        except ModuleNotFoundError:
+            requests_lib = None
+
+        session = None
+        if requests_lib:
+            session = requests_lib.Session()
+            session.verify = False  # Development setup on local network API
+
+        ssl_context = ssl._create_unverified_context()
+
+        def http_get_json(url, headers=None, timeout=15, allow_unauthorized=False):
+            if requests_lib and session:
+                response = session.get(url, headers=headers, timeout=timeout)
+                if allow_unauthorized and response.status_code == 401:
+                    return None, 401
+                response.raise_for_status()
+                return response.json(), response.status_code
+
+            req = Request(url, headers=headers or {}, method='GET')
+            try:
+                with urlopen(req, timeout=timeout, context=ssl_context) as response:
+                    payload = response.read().decode('utf-8')
+                    status_code = getattr(response, 'status', 200)
+                    return json.loads(payload or '{}'), status_code
+            except HTTPError as e:
+                if allow_unauthorized and e.code == 401:
+                    return None, 401
+                raise
+
+        def http_post_json(url, payload, headers=None, timeout=10):
+            if requests_lib and session:
+                response = session.post(url, json=payload, headers=headers, timeout=timeout)
+                response.raise_for_status()
+                return response.json()
+
+            body = json.dumps(payload).encode('utf-8')
+            request_headers = {'Content-Type': 'application/json'}
+            if headers:
+                request_headers.update(headers)
+            req = Request(url, data=body, headers=request_headers, method='POST')
+            with urlopen(req, timeout=timeout, context=ssl_context) as response:
+                text = response.read().decode('utf-8')
+                return json.loads(text or '{}')
+
+        def http_get_binary(url, headers=None, timeout=10):
+            if requests_lib and session:
+                response = session.get(url, headers=headers, timeout=timeout)
+                response.raise_for_status()
+                return response.content
+
+            req = Request(url, headers=headers or {}, method='GET')
+            with urlopen(req, timeout=timeout, context=ssl_context) as response:
+                return response.read()
+
+        def fetch_paginated(url, auth_headers=None):
+            """Fetch all pages for DRF-style paginated endpoints."""
+            records = []
+            next_url = url
+            page_count = 0
+            max_pages = 200
+
+            while next_url and page_count < max_pages:
+                page_count += 1
+                payload, status_code = http_get_json(
+                    next_url,
+                    headers=auth_headers,
+                    timeout=15,
+                    allow_unauthorized=True,
+                )
+
+                # Retry without auth if endpoint is public and token auth fails.
+                if status_code == 401 and auth_headers:
+                    payload, _ = http_get_json(next_url, headers=None, timeout=15)
+
+                if isinstance(payload, dict) and 'results' in payload:
+                    records.extend(payload.get('results') or [])
+                    next_url = payload.get('next')
+                elif isinstance(payload, list):
+                    records.extend(payload)
+                    next_url = None
+                else:
+                    next_url = None
+
+            return records
+
+        token = None
+        headers = None
+        logger.info(f"Attempting token authentication with {API_TOKEN_URL}")
+
+        try:
+            token_payload = http_post_json(
+                API_TOKEN_URL,
+                payload={"username": USERNAME, "password": PASSWORD},
+                timeout=10,
+            )
+            token = token_payload.get("token")
+            if token:
+                headers = {"Authorization": f"Token {token}"}
+                logger.info("Token authentication succeeded")
+            else:
+                logger.warning("Token endpoint responded without token; using public endpoint access")
+        except Exception as auth_err:
+            logger.warning(f"Token authentication unavailable: {auth_err}. Falling back to public GET endpoints.")
+
+        logger.info(f"Fetching all student pages from {API_STUDENTS_URL}")
+        try:
+            students_data = fetch_paginated(API_STUDENTS_URL, auth_headers=headers)
+            logger.info(f"Fetched {len(students_data)} students from remote API")
+        except TimeoutError:
+            return Response({'error': 'Student API request timed out'}, status=504)
+        except URLError as e:
+            return Response({'error': f'Cannot connect to API server: {str(e)}'}, status=503)
+        except Exception as e:
+            return Response({'error': f'Failed to fetch students: {str(e)}'}, status=400)
+
+        courses_data = []
+        try:
+            courses_data = fetch_paginated(API_COURSES_URL, auth_headers=headers)
+            logger.info(f"Fetched {len(courses_data)} courses from remote API")
+        except Exception as courses_err:
+            logger.warning(f"Could not fetch courses endpoint: {courses_err}")
+        
+        results = {
+            'total': len(students_data),
+            'created': 0,
+            'updated': 0,
+            'failed': 0,
+            'errors': [],
+            'remote_students_fetched': len(students_data),
+            'remote_courses_fetched': len(courses_data),
+        }
+        
+        for student_data in students_data:
+            try:
+                # Get or create faculty
+                faculty_name = student_data.get('faculty', 'BSIT').upper()
+                faculty, _ = Faculty.objects.get_or_create(
+                    name=faculty_name,
+                    defaults={'description': f'{faculty_name} Faculty'}
+                )
+                
+                # Get or create academic class
+                academic_year = student_data.get('academic_year', 'year_1')
+                academic_class, _ = AcademicClass.objects.get_or_create(
+                    name=academic_year,
+                    faculty=faculty,
+                )
+                
+                # Handle user account
+                email = student_data.get('email', '')
+                student_id = student_data.get('student_id_number', '')
+                
+                if not email:
+                    email = f"{student_id}@school.local"
+                
+                user = User.objects.filter(email=email).first()
+                
+                if not user:
+                    username = student_id or f"student_{student_data['id']}"
+                    full_name = student_data.get('full_name', '')
+                    user, _ = User.objects.get_or_create(
+                        username=username,
+                        defaults={
+                            'email': email,
+                            'first_name': full_name.split()[0] if full_name else '',
+                            'last_name': ' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else '',
+                            'role': 'student',
+                            'phone': student_data.get('phone_number', ''),
+                        }
+                    )
+                
+                # Get or create student
+                student, created = Student.objects.get_or_create(
+                    id=student_data['id'],
+                    defaults={
+                        'full_name': student_data.get('full_name', ''),
+                        'enrollment_year': student_data.get('year_of_enrollment', 2024),
+                        'faculty': faculty,
+                        'academic_class': academic_class,
+                        'phone': student_data.get('phone_number', ''),
+                        'guardian_phone': student_data.get('guardian_phone_number', ''),
+                        'user': user,
+                        'is_active': True,
+                    }
+                )
+                
+                if not created:
+                    # Update existing student
+                    student.full_name = student_data.get('full_name', student.full_name)
+                    student.enrollment_year = student_data.get('year_of_enrollment', student.enrollment_year)
+                    student.faculty = faculty
+                    student.academic_class = academic_class
+                    student.phone = student_data.get('phone_number', student.phone)
+                    student.guardian_phone = student_data.get('guardian_phone_number', student.guardian_phone)
+                    student.user = user
+                    student.is_active = True
+                    student.save()
+                    results['updated'] += 1
+                else:
+                    results['created'] += 1
+                
+                # Download profile image if available
+                profile_image_url = student_data.get('profile_image')
+                if profile_image_url:
+                    try:
+                        if profile_image_url.startswith('/'):
+                            profile_image_url = API_BASE_URL + profile_image_url
+
+                        image_bytes = http_get_binary(profile_image_url, timeout=10)
+                        
+                        parsed_url = urlparse(profile_image_url)
+                        filename = os.path.basename(parsed_url.path)
+                        if not filename:
+                            filename = f"profile_{student_data['id']}.jpg"
+                        
+                        student.profile_image.save(
+                            filename,
+                            ContentFile(image_bytes),
+                            save=True
+                        )
+                    except Exception as e:
+                        logger.warning(f"Image download failed for {student_data.get('full_name')}: {str(e)}")
+                        results['errors'].append(f"{student_data.get('full_name')}: Image download failed - {str(e)}")
+                
+            except Exception as e:
+                results['failed'] += 1
+                logger.error(f"Error processing student {student_data.get('id')}: {str(e)}")
+                results['errors'].append(f"ID {student_data.get('id')}: {str(e)}")
+        
+        logger.info(f"Import complete: {results['created']} created, {results['updated']} updated, {results['failed']} failed")
+        
+        return Response({
+            'success': True,
+            'message': f'Imported {results["created"]} new students, updated {results["updated"]}, failed {results["failed"]}',
+            'results': results,
+        })
+    
+    except Exception as e:
+        logger.exception(f"Unexpected error in import: {str(e)}")
+        return Response({'error': f'Import failed: {str(e)}'}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def api_bulk_encode_faces(request):
     """
     Bulk face encoding API endpoint.
@@ -466,9 +748,6 @@ def api_recognize_face(request):
     class_id = serializer.validated_data.get('class_id')
     initialize_absent = serializer.validated_data.get('initialize_absent', False)
     class_start_time, threshold_time, end_time = _resolve_attendance_window(serializer.validated_data)
-
-    if initialize_absent and not class_id:
-        return Response({'error': 'class_id is required to initialize absent records.'}, status=400)
 
     if not (class_start_time <= threshold_time <= end_time):
         return Response({

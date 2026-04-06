@@ -113,4 +113,9 @@ ATTENDANCE_THRESHOLD_TIME = '10:00'  # After this time, mark as Late
 ATTENDANCE_CUTOFF_TIME = '12:00'     # After this, cannot mark via face recognition
 FACE_RECOGNITION_TOLERANCE = 0.5     # Lower = stricter matching
 
+# Remote API settings for student import
+REMOTE_API_URL = 'http://10.20.46.165:8000'
+REMOTE_API_USERNAME = 'admin'
+REMOTE_API_PASSWORD = 'admin'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
