@@ -74,10 +74,12 @@ print('Admin role set!')
 ### 5. Run the Server
 
 ```bash
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 ```
 
-Visit **http://127.0.0.1:8000/** and log in.
+Visit **http://127.0.0.1:8000/** on the same machine, or **http://<your-local-ip>:8000/** from another device on the same network.
+
+If the app needs to talk to another Django API on your LAN, set `REMOTE_API_URL` to that machine's intranet address before running the scripts.
 
 ## Project Structure
 

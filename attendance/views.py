@@ -350,7 +350,7 @@ def api_import_students_from_database(request):
     
     try:
         # API Configuration
-        API_BASE_URL = getattr(settings, 'REMOTE_API_URL', 'http://10.20.46.165:8000')
+        API_BASE_URL = getattr(settings, 'REMOTE_API_URL', 'http://127.0.0.1:8000')
         API_TOKEN_URL = f"{API_BASE_URL}/api/auth/token/"
         API_STUDENTS_URL = f"{API_BASE_URL}/api/students/"
         API_COURSES_URL = f"{API_BASE_URL}/api/courses/"

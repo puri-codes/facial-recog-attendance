@@ -22,13 +22,13 @@ from academics.models import Student, Faculty, AcademicClass
 from accounts.models import User
 
 # API Configuration
-API_BASE_URL = "http://10.20.46.165:8000"
+API_BASE_URL = getattr(settings, 'REMOTE_API_URL', 'http://127.0.0.1:8000')
 API_TOKEN_URL = f"{API_BASE_URL}/api/auth/token/"
 API_STUDENTS_URL = f"{API_BASE_URL}/api/students/"
 
 # Credentials
-USERNAME = "admin"
-PASSWORD = "admin"
+USERNAME = getattr(settings, 'REMOTE_API_USERNAME', 'admin')
+PASSWORD = getattr(settings, 'REMOTE_API_PASSWORD', 'admin')
 
 
 def get_auth_token():
