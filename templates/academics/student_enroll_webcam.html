@@ -98,8 +98,14 @@
         const hiddenInput = document.getElementById('id_webcam_image');
 
         // Start webcam
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-            .then(stream => { video.srcObject = stream; })
+        navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } } })
+            .then(stream => { 
+                video.srcObject = stream; 
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+            })
             .catch(err => alert('Camera access denied: ' + err.message));
 
         // Capture

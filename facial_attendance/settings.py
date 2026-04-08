@@ -8,7 +8,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-change-me-in-production-!@#$%^&*()'
 
-DEBUG = os.environ.get('DEBUG', '0') == '1'
+_debug_value = os.environ.get('DEBUG')
+if _debug_value is None:
+    # Default DEBUG to on for local development.
+    # Set DEBUG=0 in production environments.
+    DEBUG = True
+else:
+    DEBUG = _debug_value.strip().lower() not in {'0', 'false', 'no', 'off'}
 
 ALLOWED_HOSTS = ['*']
 

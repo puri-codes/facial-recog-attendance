@@ -124,10 +124,15 @@
                     stream = candidate;
                     video.srcObject = stream;
                     video.muted = true;
-                    video.onloadedmetadata = () => {
-                        overlay.width = video.videoWidth;
-                        overlay.height = video.videoHeight;
-                    };
+                    
+                    await new Promise(resolve => {
+                        video.onloadedmetadata = () => {
+                            overlay.width = video.videoWidth;
+                            overlay.height = video.videoHeight;
+                            resolve();
+                        };
+                    });
+                    
                     await video.play();
                     statusEl.textContent = 'Camera Ready - Scanning...';
                     cameraReady = true;
@@ -179,20 +184,24 @@
                 if (response.ok && data.results && data.results.length > 0) {
                     data.results.forEach(r => {
                         // Draw bounding box
+                        if (!r.bbox) return;
                         const bbox = r.bbox;
+                        const w = bbox.right - bbox.left;
+                        const h = bbox.bottom - bbox.top;
+                        
                         ctx.strokeStyle = r.matched ? '#10b981' : '#ef4444';
                         ctx.lineWidth = 3;
-                        ctx.strokeRect(bbox.left, bbox.top, bbox.right - bbox.left, bbox.bottom - bbox.top);
+                        ctx.strokeRect(bbox.left, bbox.top, w, h);
 
                         // Draw label
-                        const status = r.attendance_status || 'Unknown';
                         const label = r.matched ? `${r.student_name}` : 'Unknown';
                         ctx.fillStyle = r.matched ? '#10b981' : '#ef4444';
-                        ctx.font = 'bold 14px Arial';
+                        ctx.font = 'bold 14px Arial, sans-serif';
                         const textW = ctx.measureText(label).width;
-                        ctx.fillRect(bbox.left, bbox.top - 24, textW + 12, 24);
+                        const labelY = Math.max(24, bbox.top);
+                        ctx.fillRect(bbox.left, labelY - 24, textW + 12, 24);
                         ctx.fillStyle = '#fff';
-                        ctx.fillText(label, bbox.left + 6, bbox.top - 7);
+                        ctx.fillText(label, bbox.left + 6, labelY - 7);
 
                         // Add to attendance list if matched and not already marked
                         if (r.matched && !markedStudents.has(r.student_id)) {

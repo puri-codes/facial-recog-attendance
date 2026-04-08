@@ -771,11 +771,21 @@ body {
     border: 2px solid var(--border-color);
     background: #000;
     aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.camera-container video,
-.camera-container canvas {
+.camera-container video {
+    position: absolute;
     width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.camera-container canvas {
+    position: absolute;
     display: block;
 }
 
@@ -783,8 +793,7 @@ body {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    display: block;
     pointer-events: none;
 }
 
